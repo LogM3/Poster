@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% load cache %}
+
+{% block title %}
+  Последние обновления подписок
+{% endblock %}
+
+{% block content %}
+  <h1>Последние обновления подписок</h1>
+	{% include 'includes/switcher.html' %}
+	{% cache 20 follow_index page_obj.number %}
+		{% if not page_obj %}<h2>Не пора ли бы вам подписаться на кого-нибудь?</h2>{% endif %}
+  	{% for post in page_obj %}
+  	{% include 'includes/posts_list.html' %}
+  	{% endfor %}
+  	{% include 'includes/paginator.html' %}
+	{% endcache %}
+{% endblock %}
