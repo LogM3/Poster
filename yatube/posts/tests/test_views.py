@@ -31,12 +31,12 @@ class PostViewsTests(TestCase):
             description='Description of Test Group'
         )
         Post.objects.bulk_create([
-                                     Post(
-                                         text='TestPost',
-                                         author=cls.user,
-                                         group=cls.group
-                                     )] * 13
-                                 )
+            Post(
+                text='TestPost',
+                author=cls.user,
+                group=cls.group
+            )] * 13
+        )
 
     def setUp(self):
         super().setUp()
