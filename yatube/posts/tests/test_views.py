@@ -321,3 +321,109 @@ class PostCacheTests(TestCase):
 
     def test_index_cache(self):
         pass
+
+
+class PostsFollowsTests(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.user = User.objects.create_user(username='Test user')
+
+        cls.author_sub = User.objects.create_user(username='author1')
+        cls.author_no_sub = User.objects.create_user(username='author2')
+
+    def setUp(self):
+        self.guest_client = Client()
+        self.client = Client()
+        self.client.force_login(PostsFollowsTests.user)
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        shutil.rmtree(TEMP_MEDIA_ROOT, ignore_errors=True)
+
+    def tearDown(self):
+        PostsFollowsTests.user.follower.all().delete()
+
+    def follow_as_logged_user(self, username: str) -> None:
+        self.client.get(
+            reverse(
+                'posts:profile_follow',
+                kwargs={
+                    'username': username}
+            )
+        )
+
+    def test_anonymous_user_can_follow(self):
+        response = self.guest_client.get(
+            reverse(
+                'posts:profile_follow',
+                kwargs={
+                    'username': PostsFollowsTests.author_sub.username}),
+            follow=True
+        )
+        self.assertRedirects(
+            response,
+            (f'/auth/login/?next=/profile/'
+             f'{PostsFollowsTests.author_sub.username}/follow'),
+            msg_prefix='Не произошел редирект'
+        )
+        self.assertEqual(
+            PostsFollowsTests.author_sub.following.count(),
+            0,
+            'Анонимный пользователь смог подписаться на автора'
+        )
+
+    def test_user_can_follow(self):
+        author = PostsFollowsTests.author_sub
+        subs = author.following.count()
+        self.follow_as_logged_user(author.username)
+
+        self.assertEqual(
+            author.following.count(),
+            subs + 1,
+            'Пользователь не может подписаться на автора'
+        )
+        self.assertEqual(
+            author.following.first().user,
+            PostsFollowsTests.user,
+            'Созданная запись Follow некорректна'
+        )
+
+    def test_user_can_unfollow(self):
+        author = PostsFollowsTests.author_sub
+        self.follow_as_logged_user(author.username)
+        self.client.get(
+            reverse('posts:profile_unfollow', kwargs={
+                'username': author.username})
+        )
+        self.assertEqual(
+            author.following.count(),
+            0,
+            'Пользователь не может отписаться от автора'
+        )
+
+    def test_follow_context(self):
+        post1 = Post.objects.create(
+            text='Post from first author',
+            author=PostsFollowsTests.author_sub
+        )
+        post2 = Post.objects.create(
+            text='Post from second author',
+            author=PostsFollowsTests.author_no_sub,
+        )
+        self.follow_as_logged_user(PostsFollowsTests.author_sub.username)
+        context = self.client.get(reverse('posts:follow_index')).context
+        for post in context['page_obj']:
+            self.assertNotEqual(
+                post,
+                post2,
+                ('На странице подписок есть запись от автора, '
+                 'на которого не подписан пользователь')
+            )
+            self.assertEqual(
+                post,
+                post1,
+                ('На странице подписок есть запись от автора, '
+                 'на которого не подписан пользователь')
+            )
