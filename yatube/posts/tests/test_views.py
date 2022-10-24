@@ -2,17 +2,16 @@ import tempfile
 import shutil
 
 from django.db.models.fields.files import ImageFieldFile
+from django.core.cache import cache
 from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from datetime import datetime
 from django import forms
-from django.test import TestCase, Client, override_settings
+from django.test import TestCase, Client
 from django.urls import reverse
 from typing import List
 from ..models import Post, Group, User, Comment
 from ..forms import PostForm
-
-TEMP_MEDIA_ROOT = tempfile.mkdtemp(dir=settings.BASE_DIR)
 
 
 class PostViewsTests(TestCase):
@@ -72,11 +71,6 @@ class PostViewsTests(TestCase):
                     datetime.now().date(),
                     'Дата создания поста не соответствует ожидаемой'
                 )
-
-    @classmethod
-    def tearDownClass(cls):
-        super().tearDownClass()
-        shutil.rmtree(TEMP_MEDIA_ROOT, ignore_errors=True)
 
     def check_post_id_filter(self, post: Post, expected_number: int):
         self.assertEqual(
@@ -227,11 +221,11 @@ class PostViewsTests(TestCase):
         self.assertEqual(comments[0].text, comment.text)
 
 
-@override_settings(MEDIA_ROOT=TEMP_MEDIA_ROOT)
 class PostImageTests(TestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        settings.MEDIA_ROOT = tempfile.mkdtemp(dir=settings.BASE_DIR)
         cls.user = User.objects.create_user(username='IMGUser')
         cls.group = Group.objects.create(
             title='Group With Images',
@@ -263,7 +257,7 @@ class PostImageTests(TestCase):
     @classmethod
     def tearDownClass(cls):
         super().tearDownClass()
-        shutil.rmtree(TEMP_MEDIA_ROOT, ignore_errors=True)
+        shutil.rmtree(settings.MEDIA_ROOT, ignore_errors=True)
 
     def test_image_in_context(self):
         urls = [
@@ -296,11 +290,6 @@ class PostImageTests(TestCase):
         )
 
 
-@override_settings(CACHES={
-    'default': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-    }
-})
 class PostCacheTests(TestCase):
     @classmethod
     def setUpClass(cls):
@@ -314,13 +303,22 @@ class PostCacheTests(TestCase):
     def setUp(self):
         self.client = Client()
 
-    @classmethod
-    def tearDownClass(cls):
-        super().tearDownClass()
-        shutil.rmtree(TEMP_MEDIA_ROOT, ignore_errors=True)
-
     def test_index_cache(self):
-        pass
+        initial_context = self.client.get(reverse('posts:index')).context
+
+        modified_post = Post.objects.get(pk=PostCacheTests.post.pk)
+        modified_post.text = 'changed text'
+
+        cached_context = self.client.get(reverse('posts:index')).context
+        self.assertEqual(
+            initial_context['page_obj'][0],
+            cached_context['page_obj'][0]
+        )
+
+        cache.clear()
+        modified_context = self.client.get(
+            reverse('posts:index')).context
+        self.assertEqual(modified_context['page_obj'][0], modified_post)
 
 
 class PostsFollowsTests(TestCase):
@@ -336,11 +334,6 @@ class PostsFollowsTests(TestCase):
         self.guest_client = Client()
         self.client = Client()
         self.client.force_login(PostsFollowsTests.user)
-
-    @classmethod
-    def tearDownClass(cls):
-        super().tearDownClass()
-        shutil.rmtree(TEMP_MEDIA_ROOT, ignore_errors=True)
 
     def tearDown(self):
         PostsFollowsTests.user.follower.all().delete()
