@@ -358,7 +358,7 @@ class PostsFollowsTests(TestCase):
         self.assertRedirects(
             response,
             (f'/auth/login/?next=/profile/'
-             f'{PostsFollowsTests.author_sub.username}/follow'),
+             f'{PostsFollowsTests.author_sub.username}/follow/'),
             msg_prefix='Не произошел редирект'
         )
         self.assertEqual(

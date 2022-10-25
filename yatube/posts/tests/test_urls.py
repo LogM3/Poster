@@ -29,8 +29,13 @@ class PostsURLTests(TestCase):
         }
         cls.private_pages = {
             '/create/': 'posts/create_post.html',
-            f'/posts/{cls.post.pk}/edit/': 'posts/create_post.html'
+            f'/posts/{cls.post.pk}/edit/': 'posts/create_post.html',
+            '/follow/': 'posts/follow.html',
         }
+        cls.follow_pages = [
+            f'/profile/{PostsURLTests.user_author.username}/follow/',
+            f'/profile/{PostsURLTests.user_author.username}/unfollow/'
+        ]
 
     def setUp(self):
         super().setUp()
@@ -79,7 +84,7 @@ class PostsURLTests(TestCase):
     def test_pages_templates(self):
         urls_templates = {
             **PostsURLTests.public_pages,
-            **PostsURLTests.private_pages
+            **PostsURLTests.private_pages,
         }
 
         for url, template in urls_templates.items():
@@ -88,6 +93,26 @@ class PostsURLTests(TestCase):
                     self.author_client.get(url),
                     template,
                     f'Страница {url} использует неправильный шаблон'
+                )
+
+    def test_follow_pages_redirect_for_guest(self):
+        for page in PostsURLTests.follow_pages:
+            with self.subTest(page=page):
+                response = self.guest_client.get(page)
+                self.assertRedirects(
+                    response,
+                    f'/auth/login/?next={page}',
+                    msg_prefix=f'Не работает редирект на странице {page}'
+                )
+
+    def test_follow_pages_redirect(self):
+        for page in PostsURLTests.follow_pages:
+            with self.subTest(page=page):
+                response = self.logged_client.get(page)
+                self.assertRedirects(
+                    response,
+                    f'/profile/{PostsURLTests.user_author.username}/',
+                    msg_prefix=f'Не работает редирект со страницы {page}'
                 )
 
     def test_custom_404(self):
