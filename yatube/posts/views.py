@@ -31,16 +31,14 @@ def group_posts(request, slug):
 
 
 def profile(request, username):
-    following = False
     template = 'posts/profile.html'
     user = get_object_or_404(User, username=username)
     posts = user.posts.select_related('author', 'group')
     paginator = Paginator(posts, POSTS_QUANTITY)
     page_obj = paginator.get_page(request.GET.get('page'))
 
-    if not request.user.is_anonymous:
-        if Follow.objects.filter(user=request.user, author=user):
-            following = True
+    following = not request.user.is_anonymous and Follow.objects.filter(
+        user=request.user, author=user)
 
     context = {
         'author': user,
@@ -117,12 +115,9 @@ def post_edit(request, post_id):
 
 @login_required
 def follow_index(request):
-    posts = []
-    for follow in request.user.follower.select_related('author'):
-        query_set = follow.author.posts.select_related('group', 'author')
-        for post in query_set:
-            posts.append(post)
-
+    posts = Post.objects.filter(
+        author__following__user=request.user
+    ).all()
     paginator = Paginator(posts, POSTS_QUANTITY)
     page_obj = paginator.get_page(request.GET.get('page'))
 
@@ -135,13 +130,14 @@ def follow_index(request):
 
 @login_required
 def profile_follow(request, username):
-    if request.user.username != username:
-        author = get_object_or_404(User, username=username)
-        if not request.user.follower.filter(author=author):
-            Follow.objects.create(
-                user=request.user,
-                author=author
-            )
+    author = get_object_or_404(User, username=username)
+    if not (author == request.user or request.user.follower.filter(
+            author=author
+    ).exists()):
+        Follow.objects.create(
+            user=request.user,
+            author=author
+        )
     return redirect('posts:profile', username=username)
 
 
