@@ -114,37 +114,6 @@ class PostsFormsTests(TestCase):
             'Изображение поста не удаляется'
         )
 
-    # def test_guest_redirect(self):
-    #     posts_total = Post.objects.count()
-    #     response = self.client.get(reverse('posts:post_create'),
-    #                                follow=True)
-    #     self.assertRedirects(
-    #         response, '/auth/login/?next=/create/',
-    #         msg_prefix='Не работает редирект...'
-    #     )
-    #     self.assertEqual(
-    #         posts_total,
-    #         Post.objects.count(),
-    #         'Создался новый пост, хотя не должен был...'
-    #     )
-
-    # def test_comment_form_redirect(self):
-    #     comment_post = Post.objects.create(
-    #         text='Post With Comments',
-    #         author=PostsFormsTests.author
-    #     )
-    #     response = self.client.get(
-    #         reverse('posts:add_comment', kwargs={
-    #                 'post_id': comment_post.pk}),
-    #         follow=True
-    #     )
-    #     self.assertRedirects(
-    #         response,
-    #         (f'/auth/login/?next=/posts/'
-    #          f'{comment_post.pk}/comment/'),
-    #         msg_prefix='Не работает редирект...'
-    #     )
-
     def test_comment_form(self):
         comment_post = Post.objects.create(
             text='Post With Comments',

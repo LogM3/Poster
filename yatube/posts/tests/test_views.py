@@ -7,6 +7,7 @@ from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from datetime import datetime
 from django import forms
+from django.forms import ImageField
 from django.test import TestCase, Client
 from django.urls import reverse
 from typing import List
@@ -18,6 +19,7 @@ class PostViewsTests(TestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        settings.MEDIA_ROOT = tempfile.mkdtemp(dir=settings.BASE_DIR)
         cls.user = User.objects.create_user(username='TestUser')
 
         cls.empty_group = Group.objects.create(
@@ -30,18 +32,48 @@ class PostViewsTests(TestCase):
             slug='test_group',
             description='Description of Test Group'
         )
+
+        simple_img = (
+            b'\x47\x49\x46\x38\x39\x61\x02\x00'
+            b'\x01\x00\x80\x00\x00\x00\x00\x00'
+            b'\xFF\xFF\xFF\x21\xF9\x04\x00\x00'
+            b'\x00\x00\x00\x2C\x00\x00\x00\x00'
+            b'\x02\x00\x01\x00\x00\x02\x02\x0C'
+            b'\x0A\x00\x3B'
+        )
+        cls.upload = SimpleUploadedFile(
+            name='simple_img.gif',
+            content=simple_img,
+            content_type='image/gif'
+        )
+
         Post.objects.bulk_create([
             Post(
                 text='TestPost',
                 author=cls.user,
-                group=cls.group
+                group=cls.group,
+                image=cls.upload
             )] * 13
         )
+
+        # Follows
+        cls.follow_user = User.objects.create_user(
+            username='Follow user')
+        cls.author_sub = User.objects.create_user(username='author1')
+        cls.author_no_sub = User.objects.create_user(username='author2')
 
     def setUp(self):
         super().setUp()
         self.client = Client()
         self.client.force_login(self.user)
+        self.follow_client = Client()
+        self.follow_client.force_login(self.follow_user)
+        self.guest_client = Client()
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        shutil.rmtree(settings.MEDIA_ROOT, ignore_errors=True)
 
     def check_posts_fields(self, page_obj: List[Post], exp_text=None):
         for post in page_obj:
@@ -71,6 +103,10 @@ class PostViewsTests(TestCase):
                     datetime.now().date(),
                     'Дата создания поста не соответствует ожидаемой'
                 )
+                self.assertIsInstance(
+                    post.image,
+                    ImageFieldFile
+                )
 
     def check_post_id_filter(self, post: Post, expected_number: int):
         self.assertEqual(
@@ -82,7 +118,8 @@ class PostViewsTests(TestCase):
     def check_form_fields(self, form: PostForm):
         form_fields = {
             'text': forms.fields.CharField,
-            'group': forms.fields.ChoiceField
+            'group': forms.fields.ChoiceField,
+            'image': ImageField
         }
 
         for field, expected in form_fields.items():
@@ -220,93 +257,15 @@ class PostViewsTests(TestCase):
 
         self.assertEqual(comments[0].text, comment.text)
 
-
-class PostImageTests(TestCase):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        settings.MEDIA_ROOT = tempfile.mkdtemp(dir=settings.BASE_DIR)
-        cls.user = User.objects.create_user(username='IMGUser')
-        cls.group = Group.objects.create(
-            title='Group With Images',
-            slug='group_with_img',
-            description='Just the group with some images'
-        )
-        cls.client = Client()
-
-        simple_img = (
-            b'\x47\x49\x46\x38\x39\x61\x02\x00'
-            b'\x01\x00\x80\x00\x00\x00\x00\x00'
-            b'\xFF\xFF\xFF\x21\xF9\x04\x00\x00'
-            b'\x00\x00\x00\x2C\x00\x00\x00\x00'
-            b'\x02\x00\x01\x00\x00\x02\x02\x0C'
-            b'\x0A\x00\x3B'
-        )
-        upload = SimpleUploadedFile(
-            name='simple_img.gif',
-            content=simple_img,
-            content_type='image/gif'
-        )
-        cls.post_with_img = Post.objects.create(
-            text='Post With Image',
-            group=cls.group,
-            author=cls.user,
-            image=upload
-        )
-
-    @classmethod
-    def tearDownClass(cls):
-        super().tearDownClass()
-        shutil.rmtree(settings.MEDIA_ROOT, ignore_errors=True)
-
-    def test_image_in_context(self):
-        urls = [
-            reverse('posts:index'),
-            reverse('posts:profile', kwargs={
-                'username': PostImageTests.user
-            }),
-            reverse('posts:group_list', kwargs={
-                'slug': PostImageTests.group.slug
-            })
-        ]
-        for url in urls:
-            with self.subTest(url=url):
-                context = PostImageTests.client.get(url).context
-                self.assertIsInstance(
-                    context.get('page_obj')[0].image,
-                    ImageFieldFile,
-                    'В контексте не было найдено изображения'
-                )
-
-        context = PostImageTests.client.get(
-            reverse('posts:post_detail', kwargs={
-                'post_id': PostImageTests.post_with_img.pk
-            })
-        ).context
-        self.assertIsInstance(
-            context.get('post').image,
-            ImageFieldFile,
-            'В контексте не было найдено изображения'
-        )
-
-
-class PostCacheTests(TestCase):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.user = User.objects.create_user(username='Test user')
-        cls.post = Post.objects.create(
-            text='Cached Post',
-            author=cls.user
-        )
-
-    def setUp(self):
-        self.client = Client()
-
     def test_index_cache(self):
-        initial_context = self.client.get(reverse('posts:index')).context
+        user = User.objects.create_user(username='Test user')
+        post = Post.objects.create(
+            text='Cached Post',
+            author=user
+        )
 
-        modified_post = Post.objects.get(pk=PostCacheTests.post.pk)
+        initial_context = self.client.get(reverse('posts:index')).context
+        modified_post = Post.objects.get(pk=post.pk)
         modified_post.text = 'changed text'
 
         cached_context = self.client.get(reverse('posts:index')).context
@@ -320,26 +279,8 @@ class PostCacheTests(TestCase):
             reverse('posts:index')).context
         self.assertEqual(modified_context['page_obj'][0], modified_post)
 
-
-class PostsFollowsTests(TestCase):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.user = User.objects.create_user(username='Test user')
-
-        cls.author_sub = User.objects.create_user(username='author1')
-        cls.author_no_sub = User.objects.create_user(username='author2')
-
-    def setUp(self):
-        self.guest_client = Client()
-        self.client = Client()
-        self.client.force_login(PostsFollowsTests.user)
-
-    def tearDown(self):
-        PostsFollowsTests.user.follower.all().delete()
-
     def follow_as_logged_user(self, username: str) -> None:
-        self.client.get(
+        self.follow_client.get(
             reverse(
                 'posts:profile_follow',
                 kwargs={
@@ -352,24 +293,25 @@ class PostsFollowsTests(TestCase):
             reverse(
                 'posts:profile_follow',
                 kwargs={
-                    'username': PostsFollowsTests.author_sub.username}),
+                    'username': PostViewsTests.author_sub.username}),
             follow=True
         )
         self.assertRedirects(
             response,
             (f'/auth/login/?next=/profile/'
-             f'{PostsFollowsTests.author_sub.username}/follow/'),
+             f'{PostViewsTests.author_sub.username}/follow/'),
             msg_prefix='Не произошел редирект'
         )
         self.assertEqual(
-            PostsFollowsTests.author_sub.following.count(),
+            PostViewsTests.author_sub.following.count(),
             0,
             'Анонимный пользователь смог подписаться на автора'
         )
 
     def test_user_can_follow(self):
-        author = PostsFollowsTests.author_sub
+        author = PostViewsTests.author_sub
         subs = author.following.count()
+
         self.follow_as_logged_user(author.username)
 
         self.assertEqual(
@@ -379,14 +321,14 @@ class PostsFollowsTests(TestCase):
         )
         self.assertEqual(
             author.following.first().user,
-            PostsFollowsTests.user,
+            PostViewsTests.follow_user,
             'Созданная запись Follow некорректна'
         )
 
     def test_user_can_unfollow(self):
-        author = PostsFollowsTests.author_sub
+        author = PostViewsTests.author_sub
         self.follow_as_logged_user(author.username)
-        self.client.get(
+        self.follow_client.get(
             reverse('posts:profile_unfollow', kwargs={
                 'username': author.username})
         )
@@ -399,13 +341,13 @@ class PostsFollowsTests(TestCase):
     def test_follow_context(self):
         post1 = Post.objects.create(
             text='Post from first author',
-            author=PostsFollowsTests.author_sub
+            author=PostViewsTests.author_sub
         )
         post2 = Post.objects.create(
             text='Post from second author',
-            author=PostsFollowsTests.author_no_sub,
+            author=PostViewsTests.author_no_sub,
         )
-        self.follow_as_logged_user(PostsFollowsTests.author_sub.username)
+        self.follow_as_logged_user(PostViewsTests.author_sub.username)
         context = self.client.get(reverse('posts:follow_index')).context
         for post in context['page_obj']:
             self.assertNotEqual(
